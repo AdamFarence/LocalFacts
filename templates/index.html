@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LocalLens - Find Your Representatives</title>
+  <!-- Bootstrap CSS via CDN -->
+  <link
+    rel="stylesheet"
+    href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
+    integrity="sha384-MCw98SFnGE8fJT3GXwE8aGmWj2t27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO"
+    crossorigin="anonymous"
+  />
+  <style>
+    body {
+      background-color: #f8f9fa;
+    }
+    .hero {
+      background: url('https://source.unsplash.com/1600x400/?city,government') no-repeat center center;
+      background-size: cover;
+      color: #fff;
+      padding: 4rem 0;
+      text-align: center;
+    }
+    .content {
+      padding: 2rem 0;
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <h1 class="display-4">LocalLens</h1>
+      <p class="lead">Discover your federal, state, and local representatives</p>
+    </div>
+  </header>
+
+  <main class="container content">
+    <form id="addressForm" class="mb-4">
+      <div class="form-group">
+        <label for="addressInput">Enter Your Address</label>
+        <input type="text" class="form-control" id="addressInput" placeholder="123 Main St, City, State" required>
+      </div>
+      <button type="submit" class="btn btn-primary">Find Representatives</button>
+    </form>
+    <div class="results" id="results"></div>
+  </main>
+
+  <!-- Optional: Bootstrap and jQuery JavaScript via CDN -->
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"
+          integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj"
+          crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-LtrjvnR4Geary8I1d6x8SXj0UGicV3kFk6Y45F49Pe7zWFA/gH4kRbupBZe+Nq0n"
+          crossorigin="anonymous"></script>
+  <script>
+    document.getElementById('addressForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const address = document.getElementById('addressInput').value.trim();
+      const resultsDiv = document.getElementById('results');
+      
+      resultsDiv.innerHTML = '<p>Loading...</p>';
+      
+      try {
+        const response = await fetch('/api/representatives', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          resultsDiv.innerHTML = `<p>Error: ${errorData.error}</p>`;
+          return;
+        }
+        
+        const data = await response.json();
+        resultsDiv.innerHTML = `
+          <h2>Coordinates</h2>
+          <p>Latitude: ${data.coordinates.lat}, Longitude: ${data.coordinates.lng}</p>
+          <h2>Representatives</h2>
+          <pre>${JSON.stringify(data.representatives, null, 2)}</pre>
+        `;
+      } catch (error) {
+        console.error('Error:', error);
+        resultsDiv.innerHTML = '<p>Unexpected error occurred.</p>';
+      }
+    });
+  </script>
+</body>
+</html>

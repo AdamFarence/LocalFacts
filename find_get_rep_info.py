@@ -1,12 +1,20 @@
 import os
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 
-# Retrieve your API keys from environment variables
+# Retrieve API keys from environment
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 BALLOTPEDIA_API_KEY = os.environ.get("BALLOTPEDIA_API_KEY")
+
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 @app.route('/api/representatives', methods=['POST'])
 def get_representatives():
@@ -15,7 +23,7 @@ def get_representatives():
     if not address:
         return jsonify({"error": "Address is required"}), 400
 
-    # Step 1: Convert address to coordinates using Google Geocoding API
+    # Step 1: Get coordinates using Google Geocoding API
     google_url = "https://maps.googleapis.com/maps/api/geocode/json"
     google_params = {
         "address": address,
@@ -33,13 +41,13 @@ def get_representatives():
     lat = location["lat"]
     lng = location["lng"]
 
-    # Step 2: Use the coordinates with Ballotpedia's API
-    ballotpedia_url = "https://api.ballotpedia.org/vX/representatives"  # Replace vX with the correct version
+    # Step 2: Call Ballotpedia API using the obtained coordinates
+    ballotpedia_url = "https://api.ballotpedia.org/vX/representatives"  # Replace 'vX' with the correct version
     ballotpedia_params = {
         "lat": lat,
         "lon": lng,
         "api_key": BALLOTPEDIA_API_KEY,
-        # Add any additional required parameters here
+        # Include any additional required parameters per Ballotpedia's documentation
     }
     ballotpedia_response = requests.get(ballotpedia_url, params=ballotpedia_params)
     if ballotpedia_response.status_code != 200:
@@ -47,7 +55,7 @@ def get_representatives():
 
     representatives = ballotpedia_response.json()
 
-    # Combine and return the data
+    # Return the combined data to the client
     return jsonify({
         "coordinates": {"lat": lat, "lng": lng},
         "representatives": representatives
