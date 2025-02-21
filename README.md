@@ -1,3 +1,3 @@
 # LocalLens
-Bringing the locals together — Representatives, Data, People
+Bringing the locals together — Representatives, Data, People \n
 Test Commit -- Hello World!
