@@ -1,3 +1,27 @@
+# Ignore extracted and raw LegiScan data
 data/
 zipped_legiscan_data/
+
+# Ignore Python virtual environment
+.venv/
+venv/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore IDE files (VS Code, JetBrains, etc.)
+.vscode/
+.idea/
+*.swp
+
+# Ignore logs and temporary files
+*.log
+*.tmp
+
+# Ignore large JSON files
+combined_bill.json
+combined_vote.json
+combined_people.json
 
