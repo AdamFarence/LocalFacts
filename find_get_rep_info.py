@@ -9,8 +9,8 @@ import sqlite3
 import subprocess
 import requests
 
-# GitHub raw file URLs (Replace YOUR_GITHUB_USERNAME and REPO_NAME)
-GITHUB_RAW_BASE_URL = "https://raw.githubusercontent.com/AdamFarence/LocalLens/main"
+# GitHub Release Assets URL (Replace YOUR_USERNAME & REPO_NAME)
+GITHUB_RELEASE_URL = "https://github.com/AdamFarence/LocalLens/releases/download/v1.0"
 
 FILES_TO_DOWNLOAD = [
     "combined_people.json",
@@ -19,21 +19,22 @@ FILES_TO_DOWNLOAD = [
 ]
 
 def download_json_files():
-    """Downloads JSON files from GitHub if they don't exist."""
+    """Downloads JSON files from GitHub Releases if they don't exist."""
     for file in FILES_TO_DOWNLOAD:
         if not os.path.exists(file):
-            print(f"📥 Downloading {file} from GitHub...")
-            url = f"{GITHUB_RAW_BASE_URL}/{file}"
+            print(f"📥 Downloading {file} from GitHub Releases...")
+            url = f"{GITHUB_RELEASE_URL}/{file}"
             try:
-                response = requests.get(url)
+                response = requests.get(url, stream=True)
                 response.raise_for_status()
                 with open(file, "wb") as f:
-                    f.write(response.content)
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
                 print(f"✅ {file} downloaded successfully!")
             except requests.exceptions.RequestException as e:
                 print(f"❌ ERROR: Failed to download {file}: {e}")
 
-# Ensure JSON files are present
+# Ensure JSON files are available
 download_json_files()
 
 # Ensure Git LFS files are downloaded
