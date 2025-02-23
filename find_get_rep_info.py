@@ -4,34 +4,46 @@ import requests
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 from flask_cors import CORS
-import redis
 import sqlite3
 import subprocess
-import requests
 
-# GitHub Release Assets URL
+# -----------------------------------------------
+# 📌 Configuration
+# -----------------------------------------------
+
+# GitHub Release URL where large JSON files are hosted
 GITHUB_RELEASE_URL = "https://github.com/AdamFarence/LocalLens/releases/download/v1.0"
 
+# List of JSON files required for processing
 FILES_TO_DOWNLOAD = [
     "combined_people.json",
     "combined_vote.json",
     "combined_bill.json"
 ]
 
+# Headers to avoid request blocking due to missing User-Agent
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
 }
 
+# SQLite Database file
+DB_FILE = "data.db"
+
+# -----------------------------------------------
+# 📥 JSON File Download Function
+# -----------------------------------------------
+
 def download_json_files():
-    """Downloads JSON files from GitHub Releases if they don't exist."""
+    """Downloads missing JSON files from GitHub Releases and saves them locally."""
     for file in FILES_TO_DOWNLOAD:
-        if not os.path.exists(file):
+        if not os.path.exists(file):  # Only download if missing
             print(f"📥 Downloading {file} from GitHub Releases...")
             url = f"{GITHUB_RELEASE_URL}/{file}"
             try:
                 response = requests.get(url, headers=HEADERS, allow_redirects=True, stream=True)
-                response.raise_for_status()
+                response.raise_for_status()  # Raise an error for HTTP issues
 
+                # Save file in chunks to avoid memory overload
                 with open(file, "wb") as f:
                     for chunk in response.iter_content(chunk_size=8192):
                         f.write(chunk)
@@ -40,48 +52,39 @@ def download_json_files():
             except requests.exceptions.RequestException as e:
                 print(f"❌ ERROR: Failed to download {file}: {e}")
 
-# Ensure JSON files are available
+# Ensure necessary JSON files are available
 download_json_files()
 
-# Ensure database exists on startup
-DB_FILE = "data.db"
+# -----------------------------------------------
+# 🗄️ Database Setup (Ensures SQLite DB exists)
+# -----------------------------------------------
 
 if not os.path.exists(DB_FILE):
     print("⚠️  Database not found! Running setup_db.py to generate it...")
     try:
-        subprocess.run(["python", "setup_db.py"], check=True)
+        subprocess.run(["python", "setup_db.py"], check=True)  # Run setup script to populate the DB
         print("✅ Database created successfully!")
     except subprocess.CalledProcessError as e:
         print(f"❌ ERROR: Failed to create database: {e}")
 
-# Check if running locally
+# -----------------------------------------------
+# 🌎 Flask App Setup
+# -----------------------------------------------
+
+# Load environment variables **ONLY** if running locally (not in Render)
 if os.getenv("RENDER") is None:
-    from dotenv import load_dotenv
-    load_dotenv()  # Only load .env locally
+    load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # Enable CORS for frontend requests
 
-# API Keys
+# API Keys (Loaded from environment variables)
 GOOGLE_MAPS_GEOCODER_API_KEY = os.getenv("GOOGLE_MAPS_GEOCODER_API_KEY")
 FIVE_CALLS_API_KEY = os.getenv("FIVE_CALLS_API_KEY")
 
-# Load LegiScan People, Vote & Bill Data
-try:
-    with open("combined_people.json", "r", encoding="utf-8") as f:
-        PEOPLE_DATA = json.load(f)
-    with open("combined_vote.json", "r", encoding="utf-8") as f:
-        VOTE_DATA = json.load(f)
-    with open("combined_bill.json", "r", encoding="utf-8") as f:
-        BILL_DATA = json.load(f)
-    print("✅ JSON files loaded successfully!")
-except Exception as e:
-    print(f"❌ ERROR loading JSON files: {e}")
-    PEOPLE_DATA, VOTE_DATA, BILL_DATA = [], [], []
-
 @app.before_request
 def log_request():
-    """Logs incoming requests for debugging."""
+    """Logs all incoming requests for debugging."""
     print(f"🔍 REQUEST: {request.method} {request.path}")
 
 @app.route('/')
@@ -89,9 +92,14 @@ def index():
     """Serves the HTML frontend."""
     return render_template('index.html')
 
+# -----------------------------------------------
+# 🏛️ Representative Lookup Route
+# -----------------------------------------------
+
 @app.route('/api/representatives', methods=['POST'])
 def get_representatives():
     """Fetches representatives using Five Calls API & adds voting history from LegiScan."""
+    
     data = request.get_json()
     address = data.get("address")
 
@@ -101,7 +109,7 @@ def get_representatives():
 
     print(f"📍 Address received: {address}")
 
-    # Step 1: Convert Address to Coordinates
+    # 🗺️ Step 1: Convert Address to Coordinates (Geolocation)
     google_url = "https://maps.googleapis.com/maps/api/geocode/json"
     google_params = {"address": address, "key": GOOGLE_MAPS_GEOCODER_API_KEY}
 
@@ -122,7 +130,7 @@ def get_representatives():
         print(f"❌ ERROR: Google API failed: {e}")
         return jsonify({"error": "Google Maps API error"}), 500
 
-    # Step 2: Fetch Representatives from Five Calls API
+    # 🏛️ Step 2: Fetch Representatives from Five Calls API
     five_calls_url = "https://api.5calls.org/v1/representatives"
     five_calls_params = {"location": f"{lat},{lng}"}
     headers = {"X-5Calls-Token": FIVE_CALLS_API_KEY}
@@ -141,18 +149,17 @@ def get_representatives():
         print(f"❌ ERROR: Five Calls API request failed: {e}")
         return jsonify({"error": "Five Calls API error"}), 500
 
-    # Step 3: Attach LegiScan District & Voting Information
+    # 🔎 Step 3: Attach LegiScan Data (District & Voting History)
     for rep in representatives["representatives"]:
-        bioguide_id = rep.get("id")  # Use `id` from Five Calls API (this matches `bioguide_id` in LegiScan)
+        bioguide_id = rep.get("id")  # `id` from Five Calls API matches `bioguide_id` in LegiScan
         legiscan_data = find_legiscan_data(bioguide_id)
 
         if legiscan_data:
             people_id = legiscan_data.get("people_id", None)
-            district = legiscan_data.get("district", "Unknown")
             rep["people_id"] = people_id
-            rep["district"] = district
+            rep["district"] = legiscan_data.get("district", "Unknown")
 
-            # Step 4: Find Voting History with Bill Details
+            # Step 4: Fetch Voting History
             if people_id:
                 rep["votes"] = find_voting_history(people_id)
         else:
@@ -163,10 +170,13 @@ def get_representatives():
     print("✅ Final API Response:", json.dumps(representatives, indent=2))
     return jsonify(representatives), 200
 
+# -----------------------------------------------
+# 📊 Database Query Functions
+# -----------------------------------------------
 
 def find_legiscan_data(bioguide_id):
     """Finds legislator details from SQLite database."""
-    conn = sqlite3.connect("data.db")
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT people_id, name, district, party FROM people WHERE bioguide_id = ?", (bioguide_id,))
     result = cursor.fetchone()
@@ -177,19 +187,19 @@ def find_legiscan_data(bioguide_id):
     
     return None
 
-
-
 def find_voting_history(people_id):
     """Finds all votes for a legislator using people_id (SQLite)."""
-    conn = sqlite3.connect("data.db")
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM votes WHERE people_id = ?", (people_id,))
     results = cursor.fetchall()
     conn.close()
 
-    votes = {"yea": [], "nay": []}
+    votes = {"yea": [], "nay": [], "other": []}  # Add an "other" category for unexpected values
 
     for row in results:
+        vote_text = row[10]  # This is the vote type (e.g., "Yea", "Nay", "Absent", etc.)
+
         vote_data = {
             "bill_id": row[1],
             "date": row[2],
@@ -200,40 +210,32 @@ def find_voting_history(people_id):
             "absent": row[7],
             "total": row[8],
             "passed": row[9],
-            "vote_text": row[10],
+            "vote_text": vote_text,
             "bill_details": find_bill_details(row[1])
         }
-        if row[10] == "Yea":
+
+        # Ensure only "Yea" and "Nay" votes are categorized correctly
+        if vote_text == "Yea":
             votes["yea"].append(vote_data)
-        elif row[10] == "Nay":
+        elif vote_text == "Nay":
             votes["nay"].append(vote_data)
+        else:
+            # Log and store unexpected vote types
+            print(f"⚠️ Unexpected vote type: {vote_text} for people_id {people_id}")
+            votes["other"].append(vote_data)
 
     return votes
 
 
-
 def find_bill_details(bill_id):
     """Finds bill details for a given bill_id (SQLite)."""
-    conn = sqlite3.connect("data.db")
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM bills WHERE bill_id = ?", (bill_id,))
     result = cursor.fetchone()
     conn.close()
 
-    if result:
-        return {
-            "year_start": result[1],
-            "year_end": result[2],
-            "session_title": result[3],
-            "session_name": result[4],
-            "url": result[5],
-            "state_link": result[6],
-            "title": result[7],
-            "description": result[8]
-        }
-    return None
-
-
+    return None if not result else {"title": result[7], "description": result[8]}
 
 if __name__ == '__main__':
     app.run(debug=True)
