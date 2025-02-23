@@ -6,6 +6,18 @@ from dotenv import load_dotenv
 from flask_cors import CORS
 import redis
 import sqlite3
+import subprocess
+
+# Ensure database exists on startup
+DB_FILE = "data.db"
+
+if not os.path.exists(DB_FILE):
+    print("⚠️  Database not found! Running setup_db.py to generate it...")
+    try:
+        subprocess.run(["python", "setup_db.py"], check=True)
+        print("✅ Database created successfully!")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ ERROR: Failed to create database: {e}")
 
 # Check if running locally
 if os.getenv("RENDER") is None:
