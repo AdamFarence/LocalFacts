@@ -249,4 +249,5 @@ def find_bill_details(bill_id):
     return None if not result else {"title": result[7], "description": result[8]}
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 10000))  # Default to 10000, but use PORT if available
+    app.run(host="0.0.0.0", port=port, debug=True)
