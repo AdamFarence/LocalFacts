@@ -7,6 +7,34 @@ from flask_cors import CORS
 import redis
 import sqlite3
 import subprocess
+import requests
+
+# GitHub raw file URLs (Replace YOUR_GITHUB_USERNAME and REPO_NAME)
+GITHUB_RAW_BASE_URL = "https://raw.githubusercontent.com/AdamFarence/LocalLens/main"
+
+FILES_TO_DOWNLOAD = [
+    "combined_people.json",
+    "combined_vote.json",
+    "combined_bill.json"
+]
+
+def download_json_files():
+    """Downloads JSON files from GitHub if they don't exist."""
+    for file in FILES_TO_DOWNLOAD:
+        if not os.path.exists(file):
+            print(f"📥 Downloading {file} from GitHub...")
+            url = f"{GITHUB_RAW_BASE_URL}/{file}"
+            try:
+                response = requests.get(url)
+                response.raise_for_status()
+                with open(file, "wb") as f:
+                    f.write(response.content)
+                print(f"✅ {file} downloaded successfully!")
+            except requests.exceptions.RequestException as e:
+                print(f"❌ ERROR: Failed to download {file}: {e}")
+
+# Ensure JSON files are present
+download_json_files()
 
 # Ensure Git LFS files are downloaded
 print("📥 Checking Git LFS files...")
