@@ -1,1 +1,4 @@
 *.json filter=lfs diff=lfs merge=lfs -text
+combined_people.json filter=lfs diff=lfs merge=lfs -text
+combined_vote.json filter=lfs diff=lfs merge=lfs -text
+combined_bill.json filter=lfs diff=lfs merge=lfs -text
