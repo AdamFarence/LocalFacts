@@ -53,19 +53,30 @@ def download_json_files():
                 print(f"❌ ERROR: Failed to download {file}: {e}")
 
 # Ensure necessary JSON files are available
-download_json_files()
+# Only download JSON files if running locally
+if os.getenv("RENDER") is None:
+    download_json_files()
+else:
+    print("🛑 Skipping JSON download: Using prebuilt database in Render environment")
+
 
 # -----------------------------------------------
 # 🗄️ Database Setup (Ensures SQLite DB exists)
 # -----------------------------------------------
 
 if not os.path.exists(DB_FILE):
-    print("⚠️  Database not found! Running setup_db.py to generate it...")
+    print("📥 Downloading data.db from GitHub Releases...")
+    url = f"{GITHUB_RELEASE_URL}/data.db"
     try:
-        subprocess.run(["python", "setup_db.py"], check=True)  # Run setup script to populate the DB
-        print("✅ Database created successfully!")
-    except subprocess.CalledProcessError as e:
-        print(f"❌ ERROR: Failed to create database: {e}")
+        response = requests.get(url, headers=HEADERS, allow_redirects=True, stream=True)
+        response.raise_for_status()
+        with open(DB_FILE, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        print(f"✅ Database downloaded successfully!")
+    except requests.exceptions.RequestException as e:
+        print(f"❌ ERROR: Failed to download database: {e}")
+
 
 # -----------------------------------------------
 # 🌎 Flask App Setup

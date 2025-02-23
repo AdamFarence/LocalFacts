@@ -5,7 +5,10 @@ Bringing the locals together — Representatives, Data, People
 ### TKTK
 
 # First time setup
-- If the `combined_bill.json, combined_people.json, and combined_vote.json` files aren't present, the program will download them. Likewise, if `data.db` isn't present, the program will create it. First time running the program might take a few minutes.
+- If running locally, and the `combined_bill.json, combined_people.json, and combined_vote.json` files aren't present, the program will download them from the GitHub release files. Likewise, if `data.db` isn't present, the program will create it. First time running the program might take a few minutes.
+
+# Starting the test environment
+- Enter in the console `python find_get_rep_info.py`
 
 # Notes:
 - Having trouble getting the Legiscan API to work for individuals. Might be easier to download legislative data in bulk, store it locally, and have the application check that JSON data for updates. Would have to set an update schedule, though.
