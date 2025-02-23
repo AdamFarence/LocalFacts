@@ -60,44 +60,48 @@
         ? "http://127.0.0.1:5000"  // Local development
         : "https://local-lens-api.onrender.com";  // Render deployment
 
-    document.getElementById('addressForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const address = document.getElementById('addressInput').value.trim();
-        const resultsDiv = document.getElementById('results');
+        document.getElementById('addressForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const address = document.getElementById('addressInput').value.trim();
+    const resultsDiv = document.getElementById('results');
 
-        if (!address) {
-            resultsDiv.innerHTML = `<p class="text-danger">⚠ Please enter a valid address.</p>`;
+    if (!address) {
+        resultsDiv.innerHTML = `<p class="text-danger">⚠ Please enter a valid address.</p>`;
+        return;
+    }
+
+    resultsDiv.innerHTML = `<p class="loading">🔍 Searching for representatives...</p>`;
+
+    console.log("📤 Sending address:", address);  // Debugging line
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/representatives`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address })
+        });
+
+        console.log("🔄 Response Status:", response.status); // Debugging line
+
+        if (!response.ok) {
+            resultsDiv.innerHTML = `<p class="text-danger">❌ Error: ${response.status} - ${response.statusText}</p>`;
             return;
         }
 
-        resultsDiv.innerHTML = `<p class="loading">🔍 Searching for representatives...</p>`;
+        const data = await response.json();
+        console.log("✅ API Response Received:", data);
 
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/representatives`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ address })
-            });
+        resultsDiv.innerHTML = `
+            <h3 class="mt-3">Results</h3>
+            <pre class="p-3 bg-light border rounded">${JSON.stringify(data, null, 2)}</pre>
+        `;
 
-            if (!response.ok) {
-                resultsDiv.innerHTML = `<p class="text-danger">❌ Error: ${response.status} - ${response.statusText}</p>`;
-                return;
-            }
+    } catch (error) {
+        console.error("❌ Fetch Error:", error);
+        resultsDiv.innerHTML = '<p class="text-danger">⚠ Unexpected error occurred. Please try again later.</p>';
+    }
+});
 
-            const data = await response.json();
-            console.log("✅ API Response Received:", data);
-
-            // Display formatted JSON response
-            resultsDiv.innerHTML = `
-                <h3 class="mt-3">Results</h3>
-                <pre class="p-3 bg-light border rounded">${JSON.stringify(data, null, 2)}</pre>
-            `;
-
-        } catch (error) {
-            console.error("❌ Fetch Error:", error);
-            resultsDiv.innerHTML = '<p class="text-danger">⚠ Unexpected error occurred. Please try again later.</p>';
-        }
-    });
   </script>
 
 </body>
