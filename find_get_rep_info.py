@@ -8,6 +8,14 @@ import redis
 import sqlite3
 import subprocess
 
+# Ensure Git LFS files are downloaded
+print("📥 Checking Git LFS files...")
+try:
+    subprocess.run(["git", "lfs", "pull"], check=True)
+    print("✅ Git LFS files downloaded successfully!")
+except subprocess.CalledProcessError as e:
+    print(f"❌ ERROR: Git LFS download failed: {e}")
+
 # Ensure database exists on startup
 DB_FILE = "data.db"
 
