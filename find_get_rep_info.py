@@ -9,7 +9,7 @@ import sqlite3
 import subprocess
 import requests
 
-# GitHub Release Assets URL (Replace YOUR_USERNAME & REPO_NAME)
+# GitHub Release Assets URL
 GITHUB_RELEASE_URL = "https://github.com/AdamFarence/LocalLens/releases/download/v1.0"
 
 FILES_TO_DOWNLOAD = [
@@ -18,6 +18,10 @@ FILES_TO_DOWNLOAD = [
     "combined_bill.json"
 ]
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+}
+
 def download_json_files():
     """Downloads JSON files from GitHub Releases if they don't exist."""
     for file in FILES_TO_DOWNLOAD:
@@ -25,25 +29,19 @@ def download_json_files():
             print(f"📥 Downloading {file} from GitHub Releases...")
             url = f"{GITHUB_RELEASE_URL}/{file}"
             try:
-                response = requests.get(url, stream=True)
+                response = requests.get(url, headers=HEADERS, allow_redirects=True, stream=True)
                 response.raise_for_status()
+
                 with open(file, "wb") as f:
                     for chunk in response.iter_content(chunk_size=8192):
                         f.write(chunk)
+
                 print(f"✅ {file} downloaded successfully!")
             except requests.exceptions.RequestException as e:
                 print(f"❌ ERROR: Failed to download {file}: {e}")
 
 # Ensure JSON files are available
 download_json_files()
-
-# Ensure Git LFS files are downloaded
-print("📥 Checking Git LFS files...")
-try:
-    subprocess.run(["git", "lfs", "pull"], check=True)
-    print("✅ Git LFS files downloaded successfully!")
-except subprocess.CalledProcessError as e:
-    print(f"❌ ERROR: Git LFS download failed: {e}")
 
 # Ensure database exists on startup
 DB_FILE = "data.db"
