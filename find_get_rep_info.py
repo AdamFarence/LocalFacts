@@ -4,6 +4,8 @@ import requests
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 from flask_cors import CORS
+import redis
+import sqlite3
 
 # Check if running locally
 if os.getenv("RENDER") is None:
@@ -116,65 +118,74 @@ def get_representatives():
 
 
 def find_legiscan_data(bioguide_id):
-    """Finds matching LegiScan data for a given bioguide_id."""
-    for record in PEOPLE_DATA:
-        person = record.get("person", {})
-        if person.get("bioguide_id") == bioguide_id:
-            return person  # Returns full LegiScan person data
+    """Finds legislator details from SQLite database."""
+    conn = sqlite3.connect("data.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT people_id, name, district, party FROM people WHERE bioguide_id = ?", (bioguide_id,))
+    result = cursor.fetchone()
+    conn.close()
+    
+    if result:
+        return {"people_id": result[0], "name": result[1], "district": result[2], "party": result[3]}
+    
     return None
 
 
+
 def find_voting_history(people_id):
-    """Finds all votes for a given legislator using people_id."""
+    """Finds all votes for a legislator using people_id (SQLite)."""
+    conn = sqlite3.connect("data.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM votes WHERE people_id = ?", (people_id,))
+    results = cursor.fetchall()
+    conn.close()
+
     votes = {"yea": [], "nay": []}
 
-    for roll_call in VOTE_DATA:
-        roll_call_info = roll_call.get("roll_call", {})
-        vote_records = roll_call_info.get("votes", [])
-
-        for vote in vote_records:
-            if vote.get("people_id") == people_id:
-                vote_text = vote.get("vote_text")
-                bill_info = find_bill_details(roll_call_info.get("bill_id"))
-
-                vote_data = {
-                    "bill_id": roll_call_info.get("bill_id"),
-                    "date": roll_call_info.get("date"),
-                    "desc": roll_call_info.get("desc"),
-                    "yea": roll_call_info.get("yea"),
-                    "nay": roll_call_info.get("nay"),
-                    "nv": roll_call_info.get("nv"),
-                    "absent": roll_call_info.get("absent"),
-                    "total": roll_call_info.get("total"),
-                    "passed": roll_call_info.get("passed"),
-                    "vote_text": vote_text,
-                    "bill_details": bill_info
-                }
-
-                if vote_text == "Yea":
-                    votes["yea"].append(vote_data)
-                elif vote_text == "Nay":
-                    votes["nay"].append(vote_data)
+    for row in results:
+        vote_data = {
+            "bill_id": row[1],
+            "date": row[2],
+            "desc": row[3],
+            "yea": row[4],
+            "nay": row[5],
+            "nv": row[6],
+            "absent": row[7],
+            "total": row[8],
+            "passed": row[9],
+            "vote_text": row[10],
+            "bill_details": find_bill_details(row[1])
+        }
+        if row[10] == "Yea":
+            votes["yea"].append(vote_data)
+        elif row[10] == "Nay":
+            votes["nay"].append(vote_data)
 
     return votes
 
 
+
 def find_bill_details(bill_id):
-    """Finds bill details for a given bill_id."""
-    for bill_record in BILL_DATA:
-        bill = bill_record.get("bill", {})
-        if bill.get("bill_id") == bill_id:
-            return {
-                "year_start": bill["session"]["year_start"],
-                "year_end": bill["session"]["year_end"],
-                "session_title": bill["session"]["session_title"],
-                "session_name": bill["session"]["session_name"],
-                "url": bill["url"],
-                "state_link": bill["state_link"],
-                "title": bill["title"],
-                "description": bill["description"]
-            }
+    """Finds bill details for a given bill_id (SQLite)."""
+    conn = sqlite3.connect("data.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM bills WHERE bill_id = ?", (bill_id,))
+    result = cursor.fetchone()
+    conn.close()
+
+    if result:
+        return {
+            "year_start": result[1],
+            "year_end": result[2],
+            "session_title": result[3],
+            "session_name": result[4],
+            "url": result[5],
+            "state_link": result[6],
+            "title": result[7],
+            "description": result[8]
+        }
     return None
+
 
 
 if __name__ == '__main__':
