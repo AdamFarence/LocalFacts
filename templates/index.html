@@ -29,40 +29,49 @@
       <button type="submit" class="btn btn-primary">Find Representatives</button>
     </form>
 
-    <div id="results"></div>
+    <div id="results" class="mt-4"></div>
   </main>
 
   <script>
+    // Determine the API base URL dynamically
+    const API_BASE_URL = window.location.hostname.includes("localhost")
+        ? "http://127.0.0.1:5000"  // Local development
+        : "https://your-render-app.onrender.com";  // Render deployment
+
     document.getElementById('addressForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const address = document.getElementById('addressInput').value.trim();
         const resultsDiv = document.getElementById('results');
 
-        resultsDiv.innerHTML = '<p>Loading...</p>'; // Show loading message
+        resultsDiv.innerHTML = '<p class="text-primary">🔍 Searching...</p>'; // Show loading message
 
         try {
-            const response = await fetch('http://127.0.0.1:5000/api/representatives', {  
+            const response = await fetch(`${API_BASE_URL}/api/representatives`, {  
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ address })
             });
 
             if (!response.ok) {
-                resultsDiv.innerHTML = `<p>Error: ${response.status}</p>`;
+                resultsDiv.innerHTML = `<p class="text-danger">❌ Error: ${response.status} - ${response.statusText}</p>`;
                 return;
             }
 
             const data = await response.json();
             console.log("✅ API Response Received:", data);
 
-            resultsDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            // Display raw JSON response
+            resultsDiv.innerHTML = `
+                <h3 class="mt-3">Results</h3>
+                <pre class="p-3 bg-light border">${JSON.stringify(data, null, 2)}</pre>
+            `;
 
         } catch (error) {
             console.error("❌ Fetch Error:", error);
-            resultsDiv.innerHTML = '<p>Unexpected error occurred.</p>';
+            resultsDiv.innerHTML = '<p class="text-danger">⚠ Unexpected error occurred. Please try again.</p>';
         }
     });
-</script>
+  </script>
 
 </body>
 </html>
