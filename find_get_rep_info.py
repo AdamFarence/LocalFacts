@@ -5,8 +5,10 @@ from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 from flask_cors import CORS
 
-# Load environment variables
-load_dotenv()
+# Check if running locally
+if os.getenv("RENDER") is None:
+    from dotenv import load_dotenv
+    load_dotenv()  # Only load .env locally
 
 app = Flask(__name__)
 CORS(app)
