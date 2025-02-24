@@ -12,7 +12,8 @@ app = Flask(__name__)
 # Get frontend URL from Render environment variables
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://local-lens-api.onrender.com")
 
-CORS(app, resources={r"/api/*": {"origins": FRONTEND_URL}}, supports_credentials=True)
+CORS(app, origins=[FRONTEND_URL], allow_headers=["Content-Type"], methods=["GET", "POST"])
+
 
 # -----------------------------------------------
 # 📌 Configuration
@@ -93,9 +94,6 @@ if not os.path.exists(DB_FILE):
 if os.getenv("RENDER") is None:
     load_dotenv()
 
-app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})  # Allow ALL origins globally
-
 
 # API Keys (Loaded from environment variables)
 GOOGLE_MAPS_GEOCODER_API_KEY = os.getenv("GOOGLE_MAPS_GEOCODER_API_KEY")
@@ -115,20 +113,21 @@ def index():
 # 🏛️ Representative Lookup Route
 # -----------------------------------------------
 
-@app.route('/api/representatives', methods=['POST'])
+@app.route('/api/representatives', methods=['POST', 'OPTIONS'])
 def get_representatives():
-    """Fetches representatives using Five Calls API & adds voting history from LegiScan."""
-    
+    """Handles the preflight CORS request and fetches representatives."""
+    if request.method == "OPTIONS":
+        return jsonify({"message": "CORS preflight request successful"}), 200  # ✅ Allow OPTIONS request
+
     data = request.get_json()
     address = data.get("address")
 
     if not address:
-        print("❌ ERROR: No address provided")
         return jsonify({"error": "Address is required"}), 400
 
     print(f"📍 Address received: {address}")
 
-    # 🗺️ Step 1: Convert Address to Coordinates (Geolocation)
+    # Step 1: Convert Address to Coordinates (Geolocation)
     google_url = "https://maps.googleapis.com/maps/api/geocode/json"
     google_params = {"address": address, "key": GOOGLE_MAPS_GEOCODER_API_KEY}
 
@@ -138,18 +137,15 @@ def get_representatives():
         geo_data = geo_response.json()
 
         if geo_data.get("status") != "OK" or not geo_data.get("results"):
-            print("❌ ERROR: Geocoding API failed.")
             return jsonify({"error": "Invalid address"}), 400
 
         location = geo_data["results"][0]["geometry"]["location"]
         lat, lng = location["lat"], location["lng"]
-        print(f"📌 Geolocation: {lat}, {lng}")
 
     except requests.exceptions.RequestException as e:
-        print(f"❌ ERROR: Google API failed: {e}")
         return jsonify({"error": "Google Maps API error"}), 500
 
-    # 🏛️ Step 2: Fetch Representatives from Five Calls API
+    # Step 2: Fetch Representatives from Five Calls API
     five_calls_url = "https://api.5calls.org/v1/representatives"
     five_calls_params = {"location": f"{lat},{lng}"}
     headers = {"X-5Calls-Token": FIVE_CALLS_API_KEY}
@@ -159,34 +155,12 @@ def get_representatives():
         five_calls_response.raise_for_status()
         representatives = five_calls_response.json()
 
-        print("✅ Five Calls API Response:", json.dumps(representatives, indent=2))
-
         if "representatives" not in representatives or not representatives["representatives"]:
             return jsonify({"error": "No representatives found"}), 404
 
     except requests.exceptions.RequestException as e:
-        print(f"❌ ERROR: Five Calls API request failed: {e}")
         return jsonify({"error": "Five Calls API error"}), 500
 
-    # 🔎 Step 3: Attach LegiScan Data (District & Voting History)
-    for rep in representatives["representatives"]:
-        bioguide_id = rep.get("id")  # `id` from Five Calls API matches `bioguide_id` in LegiScan
-        legiscan_data = find_legiscan_data(bioguide_id)
-
-        if legiscan_data:
-            people_id = legiscan_data.get("people_id", None)
-            rep["people_id"] = people_id
-            rep["district"] = legiscan_data.get("district", "Unknown")
-
-            # Step 4: Fetch Voting History
-            if people_id:
-                rep["votes"] = find_voting_history(people_id)
-        else:
-            rep["people_id"] = None
-            rep["district"] = "Unknown"
-            rep["votes"] = []
-
-    print("✅ Final API Response:", json.dumps(representatives, indent=2))
     return jsonify(representatives), 200
 
 # -----------------------------------------------
