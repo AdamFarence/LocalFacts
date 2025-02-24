@@ -9,8 +9,10 @@ import subprocess
 
 app = Flask(__name__)
 
-frontend_url = os.getenv("FRONTEND_URL", "*")  # Set in Render settings
-CORS(app, resources={r"/*": {"origins": frontend_url}})
+# Get frontend URL from Render environment variables
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://local-lens-api.onrender.com")
+
+CORS(app, resources={r"/api/*": {"origins": FRONTEND_URL}}, supports_credentials=True)
 
 # -----------------------------------------------
 # 📌 Configuration
