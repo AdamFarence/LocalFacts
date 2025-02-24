@@ -253,15 +253,15 @@ def find_bill_details(bill_id):
     return None if not result else {"title": result[7], "description": result[8]}
 
 if __name__ == '__main__':
-    # Determine the environment
-    render_env = os.getenv('RENDER')
+    # # Determine the environment
+    # render_env = os.getenv('RENDER')
     
-    if render_env:
-        # Running on Render
-        port = int(os.environ.get('PORT', 10000))  # Render uses port 10000 by default
-        app.run(host='0.0.0.0', port=port)
-    else:
-        # Running locally
-        app.run(debug=True)
+    # if render_env:
+    #     # Running on Render
+    #     port = int(os.environ.get('PORT', 10000))  # Render uses port 10000 by default
+    #     app.run(host='0.0.0.0', port=port)
+    # else:
+    #     # Running locally
+    app.run(debug=True)
 
 
