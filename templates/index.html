@@ -25,7 +25,10 @@
   </main>
 
   <script>
-    const API_BASE_URL = "http://127.0.0.1:5000";  // Local only
+    // Dynamically determine API Base URL based on the current environment
+    const API_BASE_URL = window.location.hostname.includes("localhost")
+        ? "http://127.0.0.1:5000"  // Local development
+        : "https://local-lens-api.onrender.com";  // Render deployment
 
     document.getElementById('addressForm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -33,11 +36,16 @@
         const resultsDiv = document.getElementById('results');
         resultsDiv.innerHTML = `<p class="text-primary">🔍 Searching...</p>`;
 
+        console.log("📤 Sending request to:", API_BASE_URL + "/api/representatives");
+
         try {
             const response = await fetch(`${API_BASE_URL}/api/representatives`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ address })
             });
+
+            console.log("🔄 Response Status:", response.status); 
 
             if (!response.ok) {
                 resultsDiv.innerHTML = `<p class="text-danger">❌ Error: ${response.status} - ${response.statusText}</p>`;
@@ -45,8 +53,11 @@
             }
 
             const data = await response.json();
+            console.log("✅ API Response:", data);
+
             resultsDiv.innerHTML = `<pre class="p-3 bg-light border">${JSON.stringify(data, null, 2)}</pre>`;
         } catch (error) {
+            console.error("❌ Fetch Error:", error);
             resultsDiv.innerHTML = `<p class="text-danger">⚠ Error fetching data</p>`;
         }
     });
