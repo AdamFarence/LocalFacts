@@ -90,7 +90,8 @@ if os.getenv("RENDER") is None:
     load_dotenv()
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend requests
+CORS(app, resources={r"/*": {"origins": "*"}})  # Allow ALL origins globally
+
 
 # API Keys (Loaded from environment variables)
 GOOGLE_MAPS_GEOCODER_API_KEY = os.getenv("GOOGLE_MAPS_GEOCODER_API_KEY")
@@ -252,5 +253,6 @@ def find_bill_details(bill_id):
     return None if not result else {"title": result[7], "description": result[8]}
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))  # Default to 10000, but use PORT if available
+    port = int(os.environ.get("PORT", 5000))  # Default to 5000
     app.run(host="0.0.0.0", port=port, debug=True)
+
