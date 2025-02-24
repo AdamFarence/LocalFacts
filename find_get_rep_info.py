@@ -253,6 +253,11 @@ def find_bill_details(bill_id):
     return None if not result else {"title": result[7], "description": result[8]}
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))  # Default to 5000
-    app.run(host="0.0.0.0", port=port, debug=True)
+    # Render assigns a dynamic port, so we must use the PORT environment variable
+    port = int(os.environ.get("PORT", 8080))  # Default to 8080 for Render, fallback to 5000 for local
+    host = "0.0.0.0" if os.getenv("RENDER") else "127.0.0.1"  # Bind to all for Render, local for dev
+
+    print(f"🚀 Starting Flask app on {host}:{port}")
+    app.run(host=host, port=port, debug=not os.getenv("RENDER"))  # Disable debug mode in Render
+
 
