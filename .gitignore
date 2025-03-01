@@ -26,5 +26,5 @@ combined_vote.json
 combined_people.json
 
 .env
-.env
-data.db
+*.db
+*.json
