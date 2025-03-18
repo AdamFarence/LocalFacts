@@ -1,17 +1,35 @@
 # LocalLens
 Bringing the locals together — Representatives, Data, People
 
+# TO DO:
+- Fix database structure. Getting voting records for legislators keeps failing. I need to sit down and map out the data structures for Five Calls, then map out each structure for all of Legiscan's data, and clearly define the relationship between them all.
+
+- After that, I need to restrucutre both the `initilize_database.py` and `load_data.py` files to make them easier to read and simplier to diganose.
+
 # Table of Contents:
 ### TKTK
 
-# First time setup
-- If running locally, and the `combined_bill.json, combined_people.json, and combined_vote.json` files aren't present, the program will download them from the GitHub release files. Likewise, if `data.db` isn't present, the program will create it. First time running the program might take a few minutes.
+# Files Descriptions
 
-# Starting the test environment
-- Enter in the console `python find_get_rep_info.py`
+## app.py
 
-# Notes:
-- Having trouble getting the Legiscan API to work for individuals. Might be easier to download legislative data in bulk, store it locally, and have the application check that JSON data for updates. Would have to set an update schedule, though.
+Flask API backend that serves information related to representatives, legislation, and legislative activity. It integrates Google Maps, Five Calls, and OpenAI's APIs and uses SQLite for data storage. The primary use case allows users to input an address (and optionally a topic), find their representatives, and retrieve recent legislative activity related to those representatives, summarized using AI.
+
+## classify.py
+
+Classifies legislative bills into various predefined topics using natural language processing (NLP), storing results in a SQLite database. It leverages a zero-shot classification model from Hugging Face (facebook/bart-large-mnli) to automatically identify relevant topics from bill descriptions.
+
+## initialize_database.py
+
+Initializes a SQLite database designed to store and efficiently retrieve legislative data. It defines tables for managing bills, votes, and legislator information, establishes database constraints to ensure data integrity, and optimizes database performance with indexing.
+
+## load_data.py
+
+Loads bulk legislative data from JSON files into a SQLite database. It specifically processes bill details, legislative votes, and legislator information from structured JSON files, skipping any records already existing in the database to avoid redundancy.
+
+## update_data.py
+
+Fetches recent legislative bills from the LegiScan API for a specified state and stores or updates them in a local SQLite database. It's primarily designed to keep a database of bills up-to-date with the latest legislative actions.
 
 ## Potential Datasets
 Legiscan Bulk Datasets

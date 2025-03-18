@@ -169,27 +169,47 @@ def representatives():
     try:
         data = request.get_json()
         address = data.get("address")
-        topic = data.get("topic")  # ✅ Get optional topic from user input
+        topic = data.get("topic")  # Optional user input
 
         if not address:
             return jsonify({"error": "Address is required"}), 400
 
-        # 🌎 Step 1: Get lat/lon from address
+        # Step 1: Geocode address
         location, error = geocode_address(address)
         if error:
             return jsonify({"error": error}), 400
 
-        # 🏛️ Step 2: Find representatives using FiveCalls API
+        # Step 2: Find representatives using FiveCalls API
         reps, error = get_representatives(*location)
         if error:
             return jsonify({"error": error}), 400
 
-        # 📜 Step 3: Fetch legislative activity with optional topic filter
+        # Debug: Print Five Calls IDs and match status clearly
+        print("\n📝 Five Calls ID check:")
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+
         rep_legislation = {}
         for rep in reps:
-            fivecalls_id = rep.get("id")
-            if fivecalls_id:
-                rep_legislation[rep["name"]] = get_legislation_for_rep(fivecalls_id, topic)
+            fivecalls_id = rep.get("id", "UNKNOWN")
+            name = rep.get("name", "Unknown")
+
+            # Print the Five Calls ID for debugging
+            print(f" - {rep['name']} (Five Calls ID: {fivecalls_id})")
+
+            # Check if legislator is in your database
+            cursor.execute("SELECT people_id, name FROM people WHERE bioguide_id = ?", (fivecalls_id,))
+            person = cursor.fetchone()
+
+            if person:
+                print(f"  ✅ Found {rep['name']} in DB with people_id {person[0]}")
+                legislation = get_legislation_for_rep(fivecalls_id, topic)
+                rep_legislation[name] = legislation
+            else:
+                print(f"❌ Legislator {rep['name']} (Five Calls ID: {fivecalls_id}) not found in database.")
+                rep_legislation[rep["name"]] = {"error": "Legislator not found in database"}
+
+        conn.close()
 
         return jsonify({"representatives": reps, "legislation": rep_legislation})
 
