@@ -1,11 +1,6 @@
 # LocalLens
 Bringing the locals together — Representatives, Data, People
 
-# TO DO:
-- Fix database structure. Getting voting records for legislators keeps failing. I need to sit down and map out the data structures for Five Calls, then map out each structure for all of Legiscan's data, and clearly define the relationship between them all.
-
-- After that, I need to restrucutre both the `initilize_database.py` and `load_data.py` files to make them easier to read and simplier to diganose.
-
 # Table of Contents:
 ### TKTK
 

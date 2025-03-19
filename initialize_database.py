@@ -1,46 +1,43 @@
 import sqlite3
-from config import DB_FILE
+import json
+import glob
+import os
+import logging
+from config import DATA_DIR, DB_FILE
 
-def initialize_database():
-    """Creates necessary tables in the SQLite database if they don't exist."""
-    conn = sqlite3.connect(DB_FILE, timeout=10, isolation_level=None)
-    conn.execute("PRAGMA journal_mode=WAL;")  # ✅ Enable Write-Ahead Logging
-    conn.execute("PRAGMA synchronous = FULL;")  # ✅ Ensure database writes are fully committed
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+
+def initialize_db():
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
-    # ✅ Enable Foreign Key Constraints for data integrity
-    cursor.execute("PRAGMA foreign_keys = ON;")
+    cursor.execute('''CREATE TABLE IF NOT EXISTS people (
+        people_id INTEGER PRIMARY KEY,
+        bioguide_id TEXT,
+        name TEXT,
+        party TEXT,
+        role TEXT,
+        district TEXT
+    )''')
 
-    # ✅ Create bills table (now with AI-generated summary and topic)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS bills (
+    cursor.execute('''CREATE TABLE IF NOT EXISTS bills (
         bill_id INTEGER PRIMARY KEY,
-        session_id INTEGER,
-        state TEXT,
-        bill_number TEXT,
+        session_title TEXT,
+        session_name TEXT,
+        state_link TEXT,
+        url TEXT,
+        status INTEGER,
+        status_date TEXT,
         title TEXT,
-        description TEXT,
-        summary TEXT DEFAULT NULL,  -- ✅ AI-generated bill summary
-        topic TEXT DEFAULT NULL,  -- ✅ AI-classified bill topics (comma-separated)
-        status TEXT,
-        last_action TEXT,
-        last_action_date TEXT DEFAULT NULL,  -- ✅ Store as TEXT but allows DATE conversion
-        url TEXT
-    );
-    """)
+        description TEXT
+    )''')
 
-    # ✅ Create index for faster topic-based queries
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_bills_topic ON bills (topic);")
-
-    # ✅ Create votes table (now includes `vote_text`)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS votes (
-        roll_call_id INTEGER,
+    cursor.execute('''CREATE TABLE IF NOT EXISTS votes (
+        roll_call_id INTEGER PRIMARY KEY,
         bill_id INTEGER,
-        people_id INTEGER,  -- ✅ Added people_id
         date TEXT,
         description TEXT,
-        vote_text TEXT,  -- ✅ Store "Yea", "Nay", "NV"
         yea INTEGER,
         nay INTEGER,
         nv INTEGER,
@@ -48,30 +45,102 @@ def initialize_database():
         total INTEGER,
         passed INTEGER,
         url TEXT,
-        FOREIGN KEY (bill_id) REFERENCES bills (bill_id) ON DELETE CASCADE,
-        FOREIGN KEY (people_id) REFERENCES people (people_id) ON DELETE CASCADE,
-        PRIMARY KEY (roll_call_id, people_id)  -- ✅ Each person votes once per roll call
-    );
-    """)
+        FOREIGN KEY(bill_id) REFERENCES bills(bill_id)
+    )''')
 
-    # ✅ Indexes for faster queries on vote tracking
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_votes_bill ON votes (bill_id);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_votes_people ON votes (people_id);")
-
-    # ✅ Create people table (now with `bioguide_id`)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS people (
-        people_id INTEGER PRIMARY KEY,
-        bioguide_id TEXT UNIQUE,  -- ✅ Added bioguide_id to match FiveCalls API
-        name TEXT,
-        party TEXT,
-        district TEXT
-    );
-    """)
+    cursor.execute('''CREATE TABLE IF NOT EXISTS legislator_votes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        roll_call_id INTEGER,
+        people_id INTEGER,
+        vote_text TEXT,
+        FOREIGN KEY(roll_call_id) REFERENCES votes(roll_call_id)
+    )''')
 
     conn.commit()
     conn.close()
-    print("✅ Database initialized with necessary tables.")
+
+def load_json_files():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    # Recursively search for all JSON files in the nested directories
+    session_dirs = glob.glob(os.path.join(DATA_DIR, "**"), recursive=True)
+    for session_dir in session_dirs:
+        # Load people JSON files
+        people_files = glob.glob(os.path.join(session_dir, "people", "*.json"))
+        for file in people_files:
+            with open(file, "r", encoding="utf-8") as f:
+                person = json.load(f)["person"]
+                cursor.execute('''
+                    INSERT OR IGNORE INTO people (people_id, bioguide_id, name, party, role, district)
+                    VALUES (?, ?, ?, ?, ?, ?)''', (
+                    person["people_id"],
+                    person.get("bioguide_id"),
+                    person["name"],
+                    person["party"],
+                    person["role"],
+                    person["district"]
+                ))
+                logging.info(f"Inserted person {person['name']}")
+
+        # Bills
+        bill_files = glob.glob(os.path.join(session_dir, "bill", "*.json"))
+        for file in bill_files:
+            with open(file, "r", encoding="utf-8") as f:
+                bill_json = json.load(f)["bill"]
+                cursor.execute('''
+                    INSERT OR IGNORE INTO bills (
+                        bill_id, session_title, session_name, state_link, url,
+                        status, status_date, title, description
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+                    bill_json["bill_id"],
+                    bill_json["session"]["session_title"],
+                    bill_json["session"]["session_name"],
+                    bill_json["state_link"],
+                    bill_json["url"],
+                    bill_json["status"],
+                    bill_json["status_date"],
+                    bill_json["title"],
+                    bill_json["description"]
+                ))
+                logging.info(f"Inserted bill {bill_json['bill_number']}")
+
+        # Votes
+        vote_files = glob.glob(os.path.join(session_dir, "vote", "*.json"))
+        for file in vote_files:
+            with open(file, "r", encoding="utf-8") as f:
+                roll_call = json.load(f)["roll_call"]
+                cursor.execute('''
+                    INSERT OR IGNORE INTO votes (roll_call_id, bill_id, date, description, yea, nay, nv, absent, total, passed, url)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+                    roll_call["roll_call_id"],
+                    roll_call["bill_id"],
+                    roll_call["date"],
+                    roll_call["desc"],
+                    roll_call["yea"],
+                    roll_call["nay"],
+                    roll_call.get("nv", 0),
+                    roll_call.get("absent", 0),
+                    roll_call["total"],
+                    roll_call["passed"],
+                    roll_call.get("url", "")
+                ))
+
+            for voter in roll_call.get("votes", []):
+                cursor.execute('''
+                    INSERT OR IGNORE INTO legislator_votes (roll_call_id, people_id, vote_text)
+                    VALUES (?, ?, ?)''', (
+                    roll_call["roll_call_id"],
+                    voter["people_id"],
+                    voter["vote_text"]
+                ))
+
+            logging.info(f"Inserted roll call {roll_call['roll_call_id']} into database")
+
+    conn.commit()
+    conn.close()
+
 
 if __name__ == "__main__":
-    initialize_database()
+    initialize_db()
+    load_json_files()
