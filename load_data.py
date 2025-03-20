@@ -65,6 +65,8 @@ def get_legislation_for_rep(fivecalls_id, topic=None):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
+    logging.info(f"Checking if Five Calls ID {fivecalls_id} exists in the database.")
+
     cursor.execute("SELECT people_id, district FROM people WHERE bioguide_id = ?", (fivecalls_id,))
     person = cursor.fetchone()
     if not person:
@@ -75,12 +77,11 @@ def get_legislation_for_rep(fivecalls_id, topic=None):
 
     logging.info(f"Fetching legislation for people_id {people_id}")
 
-    sql_query = """
-        SELECT v.date, v.vote_text, b.bill_id, b.bill_number, b.title, b.description, b.summary, b.topic, b.status, b.url
-        FROM votes v JOIN bills b ON v.bill_id = b.bill_id
-        WHERE v.people_id = ? AND b.status IN (4, 5, 6)
-        ORDER BY v.date DESC LIMIT 5;
-    """
+    cursor.execute("""
+        SELECT people_id, district FROM people 
+        WHERE bioguide_id = (SELECT bioguide_id FROM five_calls_mapping WHERE five_calls_id = ?)
+    """, (fivecalls_id,))
+
 
     cursor.execute(sql_query, (person[0],))
     results = cursor.fetchall()
@@ -95,7 +96,7 @@ def get_legislation_for_rep(fivecalls_id, topic=None):
             {"date": row[0], "vote_text": row[1], "bill": {"bill_id": row[2], "bill_number": row[3], "title": row[4],
               "description": row[5], "summary": row[6], "topic": row[7], "status": row[8], "url": row[9]}
             }
-            for row in cursor.fetchall()
+            for row in results
         ]
     }
 

@@ -1,13 +1,4 @@
-import sqlite3
+from app import get_legislation_for_rep
 
-DB_FILE = "data.db"
-
-conn = sqlite3.connect(DB_FILE)
-cursor = conn.cursor()
-
-cursor.execute("SELECT COUNT(*) FROM people;")
-result = cursor.fetchone()
-
-conn.close()
-
-print(f"✅ Total People Records: {result[0]}")
+results = get_legislation_for_rep("M001243") ## Example bioguide_id
+print(results)

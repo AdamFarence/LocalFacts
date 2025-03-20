@@ -71,9 +71,18 @@ def load_json_files():
         for file in people_files:
             with open(file, "r", encoding="utf-8") as f:
                 person = json.load(f)["person"]
+
+                print("DEBUG: ", person["name"],"bioguide_id", person.get("bioguide_id"))
                 cursor.execute('''
-                    INSERT OR IGNORE INTO people (people_id, bioguide_id, name, party, role, district)
-                    VALUES (?, ?, ?, ?, ?, ?)''', (
+                    INSERT INTO people (people_id, bioguide_id, name, party, role, district)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(people_id) DO UPDATE SET
+                        bioguide_id=excluded.bioguide_id,
+                        name=excluded.name,
+                        party=excluded.party,
+                        role=excluded.role,
+                        district=excluded.district
+                ''', (
                     person["people_id"],
                     person.get("bioguide_id"),
                     person["name"],
@@ -81,7 +90,8 @@ def load_json_files():
                     person["role"],
                     person["district"]
                 ))
-                logging.info(f"Inserted person {person['name']}")
+
+                # logging.info(f"Inserted person {person['name']}")
 
         # Bills
         bill_files = glob.glob(os.path.join(session_dir, "bill", "*.json"))
@@ -103,7 +113,7 @@ def load_json_files():
                     bill_json["title"],
                     bill_json["description"]
                 ))
-                logging.info(f"Inserted bill {bill_json['bill_number']}")
+                # logging.info(f"Inserted bill {bill_json['bill_number']}")
 
         # Votes
         vote_files = glob.glob(os.path.join(session_dir, "vote", "*.json"))
@@ -135,7 +145,7 @@ def load_json_files():
                     voter["vote_text"]
                 ))
 
-            logging.info(f"Inserted roll call {roll_call['roll_call_id']} into database")
+            # logging.info(f"Inserted roll call {roll_call['roll_call_id']} into database")
 
     conn.commit()
     conn.close()

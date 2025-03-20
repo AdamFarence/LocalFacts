@@ -55,7 +55,7 @@ def get_representatives(lat, lng):
 # 📝 Step 3: Use AI to Summarize Bills
 # ----------------------------
 def summarize_bill(bill_id, description):
-    """Generate an AI summary only if it doesn’t exist in the database."""
+    """Generate an AI summary only if it doesn't exist in the database."""
     if not description or len(description) < 20:
         return "No summary available."
 
@@ -101,7 +101,6 @@ def summarize_bill(bill_id, description):
 # 📜 Step 4: Fetch Legislative Activity
 # ----------------------------
 def get_legislation_for_rep(fivecalls_id, topic=None):
-    """Fetch recent legislations, filtering by AI-classified topics."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
@@ -114,51 +113,81 @@ def get_legislation_for_rep(fivecalls_id, topic=None):
         people_id, name, party, district = person
 
         sql_query = """
-            SELECT 
-                v.date, v.vote_text, 
-                b.bill_id, b.bill_number, b.title, b.description, b.summary, b.topic, b.status, b.url
-            FROM votes v
-            JOIN bills b ON v.bill_id = b.bill_id
-            WHERE v.people_id = ?
-            AND b.status IN (4, 5, 6)
+            SELECT
+                bills.bill_id,
+                bills.title,
+                bills.description,
+                bills.status,
+                bills.status_date,
+                bills.url,
+                legislator_votes.vote_text AS legislator_vote,
+                MAX(votes.date) AS most_recent_vote_date,
+                MAX(votes.yea) AS total_yea,
+                MAX(votes.nay) AS total_nay,
+                MAX(votes.passed) AS passed
+            FROM legislator_votes
+            JOIN votes ON legislator_votes.roll_call_id = votes.roll_call_id
+            JOIN bills ON votes.bill_id = bills.bill_id
+            WHERE legislator_votes.people_id = ?
+              AND bills.status IN (4, 5, 6)
         """
 
         params = [people_id]
 
         if topic:
-            sql_query += " AND (b.topic LIKE ? OR b.topic LIKE ? OR b.title LIKE ? OR b.description LIKE ?)"
-            params.extend([f"%{topic}%", f"%,{topic},%", f"%{topic}%", f"%{topic}%"])
+            sql_query += """
+                AND (
+                    bills.title LIKE ?
+                    OR bills.description LIKE ?
+                )
+            """
+            topic_param = f"%{topic}%"
+            params.extend([topic_param, topic_param])
 
-        sql_query += " GROUP BY b.bill_id ORDER BY v.date DESC LIMIT 5;"
+        sql_query += """
+            GROUP BY bills.bill_id
+            ORDER BY bills.status_date DESC
+            LIMIT 5;
+        """
+
         cursor.execute(sql_query, params)
-
         results = cursor.fetchall()
         conn.close()
 
+        # Return results keyed by legislator name for frontend compatibility
         return {
-            "people_id": people_id,
-            "district": district,
-            "bills": [
-                {
-                    "date": row[0],
-                    "vote_text": row[1],
-                    "bill": {
-                        "bill_id": row[2],
-                        "bill_number": row[3],
-                        "title": row[4],
-                        "description": row[5],
-                        "summary": row[6],
-                        "topic": row[7],  
-                        "status": row[8],
-                        "url": row[9]
+            name: {
+                "people_id": people_id,
+                "district": district,
+                "bills": [
+                    {
+                        "bill": {
+                            "bill_id": row[0],
+                            "bill_number": row[0],  # If no bill_number, repeat bill_id
+                            "title": row[1],
+                            "description": row[2],
+                            "status": row[3],
+                            "status_date": row[4],
+                            "url": row[5],
+                            "summary": "",  # Placeholder if not yet implemented
+                            "topic": ""     # Placeholder if not yet implemented
+                        },
+                        "vote_text": row[6],
+                        "most_recent_vote_date": row[7],
+                        "total_yea": row[8],
+                        "total_nay": row[9],
+                        "passed": bool(row[10])
                     }
-                }
-                for row in results
-            ]
+                    for row in results
+                ]
+            }
         }
 
     except Exception as e:
+        conn.close()
         return {"error": "Database error", "details": str(e)}
+
+
 
 # ----------------------------
 # 🛠️ API Route: Find Representatives
