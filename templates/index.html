@@ -16,10 +16,45 @@
             <input type="text" class="form-control" id="addressInput" placeholder="123 Main St, City, State">
         </div>
 
-        <!-- Topic Input -->
+        <!-- Matching Behavior Dropdown -->
         <div class="mb-3">
-            <label for="topicInput" class="form-label">Enter a Topic (Optional)</label>
-            <input type="text" class="form-control" id="topicInput" placeholder="e.g., healthcare, education, veterans">
+            <label for="matchBehavior" class="form-label">Topic Matching Behavior</label>
+            <select class="form-select" id="matchBehavior">
+                <option value="any">Match Any Selected Topic</option>
+                <option value="all">Match All Selected Topics</option>
+            </select>
+        </div>
+
+        <!-- Topic Dropdown -->
+        <div class="mb-3">
+            <label for="topicInput" class="form-label">Select a Topic (Optional)</label>
+            <select class="form-select" id="topicInput" multiple>
+                <option value="">All Topics</option>
+                <option value="Healthcare">Healthcare</option>
+                <option value="Education">Education</option>
+                <option value="Economy">Economy</option>
+                <option value="National Security">National Security</option>
+                <option value="Infrastructure">Infrastructure</option>
+                <option value="Criminal Justice">Criminal Justice</option>
+                <option value="Social Issues">Social Issues</option>
+                <option value="Environment">Environment</option>
+                <option value="International Relations">International Relations</option>
+                <option value="Civil Rights">Civil Rights</option>
+                <option value="Inflation">Inflation</option>
+                <option value="Groceries">Groceries</option>
+                <option value="Taxes">Taxes</option>
+                <option value="Housing">Housing</option>
+                <option value="Transportation">Transportation</option>
+                <option value="Energy">Energy</option>
+                <option value="Agriculture">Agriculture</option>
+                <option value="Labor">Labor</option>
+                <option value="Veterans">Veterans</option>
+                <option value="Science">Science</option>
+                <option value="Technology">Technology</option>
+                <option value="Digital Rights">Digital Rights</option>
+                <option value="Privacy">Privacy</option>
+                <option value="Miscellaneous">Miscellaneous</option>
+            </select>
         </div>
 
         <!-- Search Button -->
@@ -30,94 +65,54 @@
     </div>
 
     <script>
-        async function findReps() {
-            const address = document.getElementById('addressInput').value.trim();
-            const topic = document.getElementById('topicInput').value.trim();
-            const resultsDiv = document.getElementById('results');
-    
-            if (!address) {
-                resultsDiv.innerHTML = `<p class="text-danger">❌ Please enter an address.</p>`;
+    async function findReps() {
+        const address = document.getElementById('addressInput').value.trim();
+        const topicSelect = document.getElementById('topicInput');
+        const topics = Array.from(topicSelect.selectedOptions).map(option => option.value);
+        const matchBehavior = document.getElementById('matchBehavior').value; // New behavior option
+
+        const resultsDiv = document.getElementById('results');
+
+        if (!address && topics.length === 0) {
+            resultsDiv.innerHTML = `<p class="text-danger">❌ Please enter an address or select at least one topic.</p>`;
+            return;
+        }
+
+        resultsDiv.innerHTML = `<p class="text-primary">🔍 Searching...</p>`;
+
+        try {
+            const response = await fetch('/api/representatives', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ address, topics, matchBehavior })  // <-- Include behavior clearly
+            });
+
+            if (!response.ok) {
+                resultsDiv.innerHTML = `<p class="text-danger">❌ Server Error: ${response.status}</p>`;
                 return;
             }
-    
-            resultsDiv.innerHTML = `<p class="text-primary">🔍 Searching... (This may take a few seconds)</p>`;
-    
-            try {
-                const response = await fetch('/api/representatives', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ address, topic })  
-                });
-    
-                if (!response.ok) {
-                    resultsDiv.innerHTML = `<p class="text-danger">❌ Server Error: ${response.status}</p>`;
-                    return;
-                }
-    
-                const data = await response.json();
-                console.log("📜 API Response:", data);  // ✅ Log full response
-    
-                displayResults(data);
-    
-            } catch (error) {
-                console.error("⚠️ Network or API Error:", error);
-                resultsDiv.innerHTML = `<p class="text-danger">⚠ Error fetching data</p>`;
-            }
+
+            const data = await response.json();
+            displayResults(data);
+
+        } catch (error) {
+            console.error("⚠️ Error:", error);
+            resultsDiv.innerHTML = `<p class="text-danger">⚠️ Error fetching data</p>`;
         }
+    }
     </script>
     
     <script>
-        function displayResults(data) {
-            console.log("🎯 Displaying Data:", data);
-            let html = `<h3>Representatives</h3><ul class="list-group">`;
+function displayResults(data) {
+    console.log("🎯 Displaying Data:", data);
     
-            if (!data.representatives || data.representatives.length === 0) {
-                html += `<li class="list-group-item text-muted">No representatives found.</li>`;
-            } else {
-                data.representatives.forEach(rep => {
-                    html += `<li class="list-group-item">
-                        <strong>${rep.name}</strong> (${rep.party}) - District: ${rep.district}<br>
-                    </li>`;
-                });
-            }
-    
-            html += `</ul><h3 class="mt-4">Legislation</h3>`;
-    
-            if (!data.legislation || Object.keys(data.legislation).length === 0) {
-                html += `<p class="text-muted">No legislative activity found.</p>`;
-            } else {
-                for (const [rep, details] of Object.entries(data.legislation)) {
-                    html += `<h4>${rep} (District ${details.district})</h4>`;
-    
-                    if (!details.bills || !Array.isArray(details.bills) || details.bills.length === 0) {
-                        html += `<p class="text-muted">No relevant bills found for this legislator.</p>`;
-                        continue;
-                    }
-    
-                    html += `<ul class="list-group">`;
-                    details.bills.forEach(billData => {
-                        let bill = billData.bill; // ✅ Ensure we're accessing the right structure
-    
-                        let statusClass = "";
-                        if (bill.status === 4) statusClass = "text-success";  
-                        else if (bill.status === 5) statusClass = "text-warning";  
-                        else if (bill.status === 6) statusClass = "text-danger";  
-    
-                        html += `<li class="list-group-item">
-                            <strong class="${statusClass}">${bill.bill_number}:</strong> ${bill.title}<br>
-                            <em>${bill.description}</em> <br>
-                            <strong>📝 AI Summary:</strong> <em>${bill.summary || "No summary available"}</em> <br>
-                            <strong>📌 Topics:</strong> ${bill.topic || "Not categorized"}<br>
-                            <a href="${bill.url}" target="_blank">🔗 Read More</a><br>
-                        </li>`;
-                    });
-    
-                    html += `</ul>`;
-                }
-            }
-    
-            document.getElementById('results').innerHTML = html + data;
-        }
+    // Display raw JSON directly on page, nicely formatted
+    document.getElementById('results').innerHTML = `
+        <pre>${JSON.stringify(data, null, 2)}</pre>
+    `;
+}
+
+
     </script>
     
 

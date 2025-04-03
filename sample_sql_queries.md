@@ -58,3 +58,16 @@ SELECT * FROM votes WHERE roll_call_id = [roll_call_id];
 --------------------------------
 
 SELECT * FROM bills WHERE bill_id = [bill_id];
+
+--------------------------------
+Removes AI summaries
+
+UPDATE bills 
+SET summary = NULL 
+WHERE summary IS NOT NULL;
+
+
+UPDATE bills
+SET summary = NULL,
+    topic = NULL
+WHERE status IN (4, 5, 6);

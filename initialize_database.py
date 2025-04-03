@@ -3,7 +3,10 @@ import json
 import glob
 import os
 import logging
+from dotenv import load_dotenv
 from config import DATA_DIR, DB_FILE
+
+load_dotenv()
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -21,17 +24,25 @@ def initialize_db():
         district TEXT
     )''')
 
-    cursor.execute('''CREATE TABLE IF NOT EXISTS bills (
-        bill_id INTEGER PRIMARY KEY,
-        session_title TEXT,
-        session_name TEXT,
-        state_link TEXT,
-        url TEXT,
-        status INTEGER,
-        status_date TEXT,
-        title TEXT,
-        description TEXT
-    )''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS bills (
+            bill_id INTEGER PRIMARY KEY,
+            session_title TEXT,
+            session_name TEXT,
+            state_link TEXT,
+            url TEXT,
+            status INTEGER,
+            status_date TEXT,
+            doc_id INTEGER,
+            title TEXT,
+            description TEXT, 
+            summary TEXT,             -- For AI summarization
+            topic TEXT,               -- For AI topic classification
+            topic_scores TEXT,        -- NEW: Raw JSON of confidence scores
+            full_text TEXT,           -- Full bill text
+            full_text_summary TEXT    -- AI summary of full text
+        )
+    ''')
 
     cursor.execute('''CREATE TABLE IF NOT EXISTS votes (
         roll_call_id INTEGER PRIMARY KEY,
@@ -101,8 +112,8 @@ def load_json_files():
                 cursor.execute('''
                     INSERT OR IGNORE INTO bills (
                         bill_id, session_title, session_name, state_link, url,
-                        status, status_date, title, description
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+                        status, status_date, doc_id, title, description
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
                     bill_json["bill_id"],
                     bill_json["session"]["session_title"],
                     bill_json["session"]["session_name"],
@@ -110,6 +121,7 @@ def load_json_files():
                     bill_json["url"],
                     bill_json["status"],
                     bill_json["status_date"],
+                    bill_json["texts"][0]["doc_id"] if bill_json.get("texts") else None,
                     bill_json["title"],
                     bill_json["description"]
                 ))

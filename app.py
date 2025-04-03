@@ -5,7 +5,17 @@ import sqlite3
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import openai
-from config import DB_FILE
+from config import DB_FILE, TOPIC_CATEGORIES
+import logging
+from transformers import pipeline
+
+# Configure logging
+logging.basicConfig(
+    filename="ai_summarization.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 
 # Load API keys from environment variables
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_GEOCODER_API_KEY")
@@ -54,196 +64,361 @@ def get_representatives(lat, lng):
 # ----------------------------
 # 📝 Step 3: Use AI to Summarize Bills
 # ----------------------------
-def summarize_bill(bill_id, description):
-    """Generate an AI summary only if it doesn't exist in the database."""
-    if not description or len(description) < 20:
-        return "No summary available."
+def summarize_and_store_bill(bill_id, vote_text=None, outcome=None, topic=None, legislator=None):
+    """Summarize a full bill using chunked summarization if needed."""
+    MAX_CHUNKS = 30
+    MAX_CHUNKS_FOR_FINAL_SUMMARY = 20
+    MAX_FINAL_SUMMARY_LENGTH = 8000  # characters
 
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
-    # ✅ Check if a summary already exists
-    cursor.execute("SELECT summary FROM bills WHERE bill_id = ?", (bill_id,))
-    existing_summary = cursor.fetchone()
-
-    if existing_summary and existing_summary[0]:
+    cursor.execute("SELECT summary, full_text, title, description FROM bills WHERE bill_id = ?", (bill_id,))
+    row = cursor.fetchone()
+    if not row:
+        logging.warning(f"Bill {bill_id} not found in DB.")
         conn.close()
-        return existing_summary[0]
+        return "Bill not found."
 
-    openai.api_key = OPENAI_API_KEY
+    summary, full_text, title, description = row
 
-    max_length = 2000  # Truncate long descriptions to avoid exceeding OpenAI limits
-    short_description = description[:max_length]
+    if summary:
+        logging.info(f"📄 Summary for bill {bill_id} reused for legislator: {legislator.get('name') if legislator else 'Unknown'}")
+        conn.close()
+        return summary
+
+    if not full_text or len(full_text.strip()) < 100:
+        logging.warning(f"❌ No usable full text found for bill {bill_id}.")
+        conn.close()
+        return "No full text available for summarization."
 
     try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "Summarize the following legislation in simple terms for the general public. Keep it concise."},
-                {"role": "user", "content": short_description}
-            ]
-        )
-        summary = response.choices[0].message.content.strip()
+        # Step 1: Chunk the full text
+        chunks = chunk_text(full_text, max_chunk_size=1500)
+        logging.info(f"✂️ Bill {bill_id} split into {len(chunks)} chunks.")
 
-        # ✅ Store the AI-generated summary in the database
-        cursor.execute("UPDATE bills SET summary = ? WHERE bill_id = ?", (summary, bill_id))
+        if len(chunks) > MAX_CHUNKS:
+            logging.warning(f"⚠️ Truncating bill {bill_id} to {MAX_CHUNKS} chunks.")
+            chunks = chunks[:MAX_CHUNKS]
+
+        client = openai.OpenAI(api_key=openai.api_key)
+        chunk_summaries = []
+
+        # Step 2: Summarize each chunk
+        for i, chunk in enumerate(chunks):
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "Summarize this section of a legislative bill clearly and concisely."},
+                    {"role": "user", "content": chunk}
+                ]
+            )
+            chunk_summary = response.choices[0].message.content.strip()
+            chunk_summaries.append(chunk_summary)
+            logging.info(f"✅ Bill {bill_id} chunk {i+1}/{len(chunks)} summarized.")
+
+        # Step 3: Prepare combined summary
+        limited_summaries = chunk_summaries[:MAX_CHUNKS_FOR_FINAL_SUMMARY]
+        combined_summary_text = "\n".join(limited_summaries)
+        outcome_text = outcome or "This bill received a final vote."
+        vote_line = f"The legislator voted: {vote_text}." if vote_text else ""
+
+        # Step 4: Ensure topic classification
+        if not topic or not topic.strip():
+            logging.info(f"🏷️ Bill {bill_id} has no topic. Attempting classification...")
+            topic = classify_bill_if_needed(
+                bill_id=bill_id,
+                title=title,
+                description=description,
+                full_text=full_text,
+                existing_topic=topic
+            )
+
+        # Step 5: Final AI summary
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": (
+                        f"Combine the following section summaries into a single, plain-English summary of the bill. "
+                        f"{outcome_text} "
+                        f"The bill is categorized under the topic(s): {topic}. "
+                        f"Explain the bill's intended purpose and how it could affect these topics. "
+                        f"Then, briefly highlight potential benefits, as well as possible downsides or tradeoffs, in a way that's accessible to regular voters. "
+                        f"Be concise, informative, and maintain a neutral tone."
+                    )},
+                    {"role": "user", "content": combined_summary_text[:MAX_FINAL_SUMMARY_LENGTH]}
+                ]
+            )
+            final_summary = response.choices[0].message.content.strip()
+            final_summary = " ".join(final_summary.split())  # optional whitespace cleanup
+            logging.info(f"🧠 Final AI summary created for bill {bill_id}.")
+
+        except Exception as e:
+            logging.error(f"⚠️ Final summary failed for bill {bill_id}: {e}")
+            final_summary = combined_summary_text[:MAX_FINAL_SUMMARY_LENGTH] + "\n\n(Note: Full summary truncated due to token limits or errors)"
+
+        # Step 6: Store final summary
+        cursor.execute("UPDATE bills SET summary = ? WHERE bill_id = ?", (final_summary, bill_id))
         conn.commit()
         conn.close()
 
-        return summary
+        return final_summary
 
     except Exception as e:
-        print(f"⚠️ AI Summarization Error: {e}")
-        return "Summary not available due to AI rate limits."
+        logging.error(f"⚠️ AI summarization failed for bill {bill_id}: {e}")
+        cursor.execute("UPDATE bills SET summary = ? WHERE bill_id = ?", (
+            "Summary unavailable: this bill may be too long or triggered an API error.",
+            bill_id
+        ))
+        conn.commit()
+        conn.close()
+        return "AI failed to summarize."
+
+    
+def chunk_text(text, max_chunk_size=1500):
+    """Split long text into manageable chunks."""
+    return [text[i:i + max_chunk_size] for i in range(0, len(text), max_chunk_size)]
+
 
 # ----------------------------
 # 📜 Step 4: Fetch Legislative Activity
 # ----------------------------
-def get_legislation_for_rep(fivecalls_id, topic=None):
+def get_legislation_for_rep(fivecalls_id, topics=None, match_behavior="any"):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
-    try:
-        cursor.execute("SELECT people_id, name, party, district FROM people WHERE bioguide_id = ?", (fivecalls_id,))
-        person = cursor.fetchone()
-        if not person:
-            return {"bioguide_id": fivecalls_id, "error": "No matching legislator found"}
-
-        people_id, name, party, district = person
-
-        sql_query = """
-            SELECT
-                bills.bill_id,
-                bills.title,
-                bills.description,
-                bills.status,
-                bills.status_date,
-                bills.url,
-                legislator_votes.vote_text AS legislator_vote,
-                MAX(votes.date) AS most_recent_vote_date,
-                MAX(votes.yea) AS total_yea,
-                MAX(votes.nay) AS total_nay,
-                MAX(votes.passed) AS passed
-            FROM legislator_votes
-            JOIN votes ON legislator_votes.roll_call_id = votes.roll_call_id
-            JOIN bills ON votes.bill_id = bills.bill_id
-            WHERE legislator_votes.people_id = ?
-              AND bills.status IN (4, 5, 6)
-        """
-
-        params = [people_id]
-
-        if topic:
-            sql_query += """
-                AND (
-                    bills.title LIKE ?
-                    OR bills.description LIKE ?
-                )
-            """
-            topic_param = f"%{topic}%"
-            params.extend([topic_param, topic_param])
-
-        sql_query += """
-            GROUP BY bills.bill_id
-            ORDER BY bills.status_date DESC
-            LIMIT 5;
-        """
-
-        cursor.execute(sql_query, params)
-        results = cursor.fetchall()
+    cursor.execute("SELECT people_id, name, party, district FROM people WHERE bioguide_id = ?", (fivecalls_id,))
+    person = cursor.fetchone()
+    if not person:
         conn.close()
+        return {"bioguide_id": fivecalls_id, "error": "No matching legislator found"}
 
-        # Return results keyed by legislator name for frontend compatibility
-        return {
-            name: {
-                "people_id": people_id,
-                "district": district,
-                "bills": [
-                    {
-                        "bill": {
-                            "bill_id": row[0],
-                            "bill_number": row[0],  # If no bill_number, repeat bill_id
-                            "title": row[1],
-                            "description": row[2],
-                            "status": row[3],
-                            "status_date": row[4],
-                            "url": row[5],
-                            "summary": "",  # Placeholder if not yet implemented
-                            "topic": ""     # Placeholder if not yet implemented
-                        },
-                        "vote_text": row[6],
-                        "most_recent_vote_date": row[7],
-                        "total_yea": row[8],
-                        "total_nay": row[9],
-                        "passed": bool(row[10])
+    people_id, name, party, district = person
+
+    sql_query = """
+        SELECT
+            bills.bill_id,
+            bills.title,
+            bills.description,
+            bills.status,
+            bills.status_date,
+            bills.url,
+            bills.summary,
+            bills.topic,
+            bills.full_text,
+            legislator_votes.vote_text AS legislator_vote,
+            MAX(votes.date) AS most_recent_vote_date,
+            MAX(votes.yea) AS total_yea,
+            MAX(votes.nay) AS total_nay,
+            MAX(votes.passed) AS passed
+        FROM legislator_votes
+        JOIN votes ON legislator_votes.roll_call_id = votes.roll_call_id
+        JOIN bills ON votes.bill_id = bills.bill_id
+        WHERE legislator_votes.people_id = ?
+          AND bills.status IN (4, 5, 6)
+    """
+
+    params = [people_id]
+
+    if topics:
+        topics = [t.strip() for t in topics]
+
+        if match_behavior == "all":
+            topic_condition = ' AND '.join(["bills.topic LIKE ?"] * len(topics))
+        else:
+            topic_condition = ' OR '.join(["bills.topic LIKE ?"] * len(topics))
+
+        sql_query += f" AND ({topic_condition})"
+        params.extend([f'%{topic}%' for topic in topics])
+
+    sql_query += """
+        GROUP BY bills.bill_id
+        ORDER BY bills.status_date DESC
+        LIMIT 2;
+    """
+
+    cursor.execute(sql_query, params)
+    results = cursor.fetchall()
+
+    legislation_results = []
+    for row in results:
+        bill_data = {
+            "bill": {
+                "bill_id": row[0],
+                "title": row[1],
+                "description": row[2],
+                "status": row[3],
+                "status_date": row[4],
+                "url": row[5],
+                "summary": summarize_and_store_bill(
+                    bill_id=row[0],
+                    vote_text=row[9],
+                    outcome=outcome_from_status(row[3]),
+                    topic=row[7],
+                    legislator={
+                        "name": name,
+                        "party": party,
+                        "district": district
                     }
-                    for row in results
-                ]
-            }
+                ),
+                "topic": row[7],
+                "full_text": row[8]
+            },
+            "vote_text": row[9],
+            "most_recent_vote_date": row[10],
+            "total_yea": row[11],
+            "total_nay": row[12],
+            "passed": bool(row[13])
         }
+        legislation_results.append(bill_data)
 
-    except Exception as e:
-        conn.close()
-        return {"error": "Database error", "details": str(e)}
+    conn.close()
 
+    return {
+        "people_id": people_id,
+        "district": district,
+        "bills": legislation_results
+    }
 
+def outcome_from_status(status):
+    if status == 4:
+        return "✅ This bill passed."
+    elif status == 5:
+        return "🛑 This bill was vetoed."
+    elif status == 6:
+        return "❌ This bill failed."
+    else:
+        return "This bill received a final vote."
 
 # ----------------------------
 # 🛠️ API Route: Find Representatives
 # ----------------------------
 @app.route('/api/representatives', methods=['POST'])
 def representatives():
-    """Fetch representatives and their legislative activity based on an address and optional topic."""
-    try:
-        data = request.get_json()
-        address = data.get("address")
-        topic = data.get("topic")  # Optional user input
+    data = request.get_json()
+    address = data.get("address", "").strip()
+    topics = data.get("topics", [])
+    match_behavior = data.get("matchBehavior", "any")  # "any" (OR) or "all" (AND)
 
-        if not address:
-            return jsonify({"error": "Address is required"}), 400
+    if not address and not topics:
+        return jsonify({"error": "Provide at least one topic or an address."}), 400
 
-        # Step 1: Geocode address
+    reps = []
+    if address:
         location, error = geocode_address(address)
         if error:
             return jsonify({"error": error}), 400
 
-        # Step 2: Find representatives using FiveCalls API
         reps, error = get_representatives(*location)
         if error:
             return jsonify({"error": error}), 400
 
-        # Debug: Print Five Calls IDs and match status clearly
-        print("\n📝 Five Calls ID check:")
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
 
-        rep_legislation = {}
+    rep_legislation = {}
+
+    if not reps:
+        rep_legislation["Bills Matching Selected Topics"] = get_bills_by_topics(cursor, topics, match_behavior)
+    else:
         for rep in reps:
             fivecalls_id = rep.get("id", "UNKNOWN")
-            name = rep.get("name", "Unknown")
-
-            # Print the Five Calls ID for debugging
-            print(f" - {rep['name']} (Five Calls ID: {fivecalls_id})")
-
-            # Check if legislator is in your database
-            cursor.execute("SELECT people_id, name FROM people WHERE bioguide_id = ?", (fivecalls_id,))
+            cursor.execute("SELECT people_id FROM people WHERE bioguide_id = ?", (fivecalls_id,))
             person = cursor.fetchone()
 
             if person:
-                print(f"  ✅ Found {rep['name']} in DB with people_id {person[0]}")
-                legislation = get_legislation_for_rep(fivecalls_id, topic)
-                rep_legislation[name] = legislation
+                legislation = get_legislation_for_rep(fivecalls_id, topics if topics else None, match_behavior)
+                rep_legislation[rep["name"]] = legislation
             else:
-                print(f"❌ Legislator {rep['name']} (Five Calls ID: {fivecalls_id}) not found in database.")
                 rep_legislation[rep["name"]] = {"error": "Legislator not found in database"}
 
+    conn.close()
+
+    return jsonify({"representatives": reps, "legislation": rep_legislation})
+
+# Helper function to fetch bills by topic (when no address is provided)
+def get_bills_by_topics(cursor, topics, match_behavior):
+    if not topics:
+        return []
+
+    # Clean whitespace just in case
+    topics = [topic.strip() for topic in topics]
+
+    if match_behavior == "all":
+        condition = ' AND '.join(["bills.topic LIKE ?"] * len(topics))
+    else:
+        condition = ' OR '.join(["bills.topic LIKE ?"] * len(topics))
+
+    params = [f'%{topic}%' for topic in topics]
+
+    query = f"""
+        SELECT bill_id, title, description, summary, topic, url
+        FROM bills WHERE {condition}
+        ORDER BY status_date DESC LIMIT 10;
+    """
+
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+
+    return [{
+        "bill": {
+            "bill_id": row[0],
+            "title": row[1],
+            "description": row[2],
+            "summary": row[3],
+            "topic": row[4],
+            "url": row[5]
+        }
+    } for row in results]
+
+
+# Load once at module level to avoid reloading on each request
+classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+
+# ----------------------------
+# 🎨 Classify bills, if needed
+# ----------------------------
+
+def classify_bill_if_needed(bill_id, title=None, description=None, full_text=None, existing_topic=None):
+    """Run AI classification using full_text if available. Save results in DB."""
+
+    if existing_topic and existing_topic.strip():
+        return existing_topic
+
+    base_text = full_text if full_text and len(full_text.strip()) > 100 else description
+    if not base_text or len(base_text.strip()) < 20:
+        topic_str = "Miscellaneous"
+        score_json = json.dumps({"Miscellaneous": 1.0})
+    else:
+        input_text = f"Title: {title}\n{base_text[:2000]}"
+
+        try:
+            result = classifier(input_text, TOPIC_CATEGORIES, multi_label=True)
+            topics = [label for label, score in zip(result["labels"], result["scores"]) if score > 0.6]
+            if not topics:
+                topics = [result["labels"][0]]  # fallback to best match
+
+            topic_str = ", ".join(topics)
+            score_json = json.dumps(dict(zip(result["labels"], result["scores"])))
+
+        except Exception as e:
+            logging.warning(f"⚠️ Failed to classify bill {bill_id}: {e}")
+            topic_str = "Miscellaneous"
+            score_json = json.dumps({"Miscellaneous": 1.0})
+
+    # ✅ Save topic and scores to DB
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE bills SET topic = ?, topic_scores = ? WHERE bill_id = ?", (topic_str, score_json, bill_id))
+        conn.commit()
         conn.close()
-
-        return jsonify({"representatives": reps, "legislation": rep_legislation})
-
+        logging.info(f"🏷️ Bill {bill_id} classified as: {topic_str}")
     except Exception as e:
-        return jsonify({"error": "Internal server error", "details": str(e)}), 500
+        logging.error(f"❌ DB error while saving topic for bill {bill_id}: {e}")
+
+    return topic_str
 
 # ----------------------------
 # 🎨 Serve Frontend
