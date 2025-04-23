@@ -11,7 +11,14 @@ Pull in location-specific data about quality of life issues.
 --------
 
 # Done
+April 22nd, 2025
+
+Added in the news API. Might have to swtich to a custom Google Search -- I'm getting some duplicates in the results.
+
+
 April 2nd, 2025
+Added in a run_pipeline.py file to delete and rebuild the entire thing except the AI summarizer. Right now, the file deletes the existing database and logs, and rebuilds the database, then collects full bill text, then classifies them.
+
 Added in a way to tag and classify bills when they're requested. The summary and classifiers now use the full bill text instead of just the description. The AI summary now uses the tags to help craft the summary. The prompt was also set to weight the pros and cons.
 
 April 1st, 2025

@@ -65,57 +65,74 @@
     </div>
 
     <script>
-    async function findReps() {
-        const address = document.getElementById('addressInput').value.trim();
-        const topicSelect = document.getElementById('topicInput');
-        const topics = Array.from(topicSelect.selectedOptions).map(option => option.value);
-        const matchBehavior = document.getElementById('matchBehavior').value; // New behavior option
-
-        const resultsDiv = document.getElementById('results');
-
-        if (!address && topics.length === 0) {
-            resultsDiv.innerHTML = `<p class="text-danger">❌ Please enter an address or select at least one topic.</p>`;
-            return;
-        }
-
-        resultsDiv.innerHTML = `<p class="text-primary">🔍 Searching...</p>`;
-
-        try {
-            const response = await fetch('/api/representatives', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ address, topics, matchBehavior })  // <-- Include behavior clearly
-            });
-
-            if (!response.ok) {
-                resultsDiv.innerHTML = `<p class="text-danger">❌ Server Error: ${response.status}</p>`;
+        async function findReps() {
+            const address = document.getElementById('addressInput').value.trim();
+            const topicSelect = document.getElementById('topicInput');
+            const topics = Array.from(topicSelect.selectedOptions).map(o => o.value);
+            const matchBehavior = document.getElementById('matchBehavior').value;
+            const resultsDiv = document.getElementById('results');
+        
+            if (!address && topics.length === 0) {
+                resultsDiv.innerHTML = `<p class="text-danger">❌ Please enter an address or select at least one topic.</p>`;
                 return;
             }
-
-            const data = await response.json();
-            displayResults(data);
-
-        } catch (error) {
-            console.error("⚠️ Error:", error);
-            resultsDiv.innerHTML = `<p class="text-danger">⚠️ Error fetching data</p>`;
+        
+            resultsDiv.innerHTML = `<p class="text-primary">🔍 Searching...</p>`;
+        
+            try {
+                // 1️⃣ Fetch your reps + legislation
+                const repRes = await fetch('/api/representatives', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ address, topics, matchBehavior })
+                });
+                if (!repRes.ok) {
+                    resultsDiv.innerHTML = `<p class="text-danger">❌ Server Error: ${repRes.status}</p>`;
+                    return;
+                }
+                const data = await repRes.json();
+        
+                // 2️⃣ Now fetch their news
+                const newsRes = await fetch('/api/representative-news', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ representatives: data.representatives })
+                });
+                if (newsRes.ok) {
+                    const newsJson = await newsRes.json();
+                    // attach the news array onto your existing data object
+                    data.news = newsJson.news;
+                } else {
+                    console.error('News API error', await newsRes.text());
+                    data.news = [];
+                }
+        
+                // 3️⃣ Finally render everything
+                displayResults(data);
+        
+            } catch (err) {
+                console.error("⚠️ Error:", err);
+                resultsDiv.innerHTML = `<p class="text-danger">⚠️ Error fetching data</p>`;
+            }
         }
-    }
-    </script>
+        </script>
+      
     
     <script>
 function displayResults(data) {
-    console.log("🎯 Displaying Data:", data);
-    
-    // Display raw JSON directly on page, nicely formatted
-    document.getElementById('results').innerHTML = `
-        <pre>${JSON.stringify(data, null, 2)}</pre>
-    `;
+  console.log("🎯 Displaying Data:", data);
+  document.getElementById('results').innerHTML = `
+    <h2>Reps + Legislation</h2>
+    <pre>${JSON.stringify({
+      representatives: data.representatives,
+      legislation: data.legislation
+    }, null, 2)}</pre>
+    <h2>News</h2>
+    <pre>${JSON.stringify(data.news, null, 2)}</pre>
+  `;
 }
 
-
     </script>
-    
-
     
 </body>
 </html>

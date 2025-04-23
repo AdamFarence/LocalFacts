@@ -8,6 +8,7 @@ import openai
 from config import DB_FILE, TOPIC_CATEGORIES
 import logging
 from transformers import pipeline
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Configure logging
 logging.basicConfig(
@@ -21,6 +22,9 @@ logging.basicConfig(
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_GEOCODER_API_KEY")
 FIVE_CALLS_API_KEY = os.getenv("FIVE_CALLS_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+NEWS_API_KEY = os.getenv("NEWS_API_KEY")
+if not all([GOOGLE_MAPS_API_KEY, FIVE_CALLS_API_KEY, OPENAI_API_KEY, NEWS_API_KEY]):
+    raise ValueError("One or more API keys are missing. Please set them in your environment variables.")
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})  # Allow frontend requests
@@ -419,6 +423,81 @@ def classify_bill_if_needed(bill_id, title=None, description=None, full_text=Non
         logging.error(f"❌ DB error while saving topic for bill {bill_id}: {e}")
 
     return topic_str
+
+# ----------------------------
+# Get news articles for a representative
+# ----------------------------
+def fetch_news_for_representative(name, state=None, district=None):
+    """
+    Query NewsAPI for the 5 most recent English‐language articles that:
+      • contain the exact phrase `name`, and
+      • contain one of our office keywords (Rep, Representative, Sen, Senator, etc.),
+      • (optionally) mention the state or district as extra context.
+    """
+    url = "https://newsapi.org/v2/everything"
+
+    # build office filter
+    office_terms = ["Rep", "Representative", "Sen", "Senator", "Congressman", "Congresswoman"]
+    office_filter = " OR ".join(office_terms)
+
+    # build the boolean query
+    # e.g.:  '"John Smith" AND (Rep OR Representative OR Sen OR Senator) AND TX AND "CA-10"'
+    parts = [f'"{name}"', f'({office_filter})']
+    if state:
+        parts.append(state)
+    if district:
+        parts.append(f'"{district}"')
+    query = " AND ".join(parts)
+
+    params = {
+        "q": query,
+        "apiKey": NEWS_API_KEY,
+        "pageSize": 5,
+        "sortBy": "publishedAt",
+        "language": "en",
+    }
+
+    resp = requests.get(url, params=params)
+    resp.raise_for_status()
+
+    articles = resp.json().get("articles", [])
+    return {
+        "name": name,
+        "district": district,
+        "articles": [
+            {
+                "title": a["title"],
+                "url": a["url"],
+                "source": a["source"]["name"],
+                "publishedAt": a["publishedAt"],
+                "description": a.get("description"),
+            }
+            for a in articles
+        ]
+    }
+
+@app.route('/api/representative-news', methods=['POST'])
+def representative_news():
+    """
+    Expects JSON:
+      { "representatives": [ { "name": "Rep Name", ... }, … ] }
+    Returns:
+      { "news": [ { "name": "...", "articles": […] }, … ] }
+    """
+    reps = request.get_json().get("representatives", [])
+    names = [r["name"] for r in reps]
+
+    results = []
+    # Parallelize up to 5 concurrent NewsAPI calls
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futures = { pool.submit(fetch_news_for_representative, nm): nm for nm in names }
+        for fut in as_completed(futures):
+            try:
+                results.append(fut.result())
+            except Exception as e:
+                results.append({ "name": futures[fut], "error": str(e) })
+
+    return jsonify({ "news": results })
 
 # ----------------------------
 # 🎨 Serve Frontend
