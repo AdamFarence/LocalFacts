@@ -511,4 +511,9 @@ def index():
 # 🚀 Start Flask App
 # ----------------------------
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Grab the PORT Render expects, or fall back to 5000 locally
+    port = int(os.environ.get('PORT', 5000))
+    # Only enable Flask’s debugger when running locally
+    debug = os.environ.get('FLASK_ENV', 'production') == 'development'
+    # Listen on all interfaces so Render’s router can reach you
+    app.run(host='0.0.0.0', port=port, debug=debug)
