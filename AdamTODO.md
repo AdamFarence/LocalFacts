@@ -1,5 +1,7 @@
 # TO DO:
 
+Clean up the requirements.txt and deploy on render
+
 Figure out a cost-effective, yet accurate way to use AI to summarize the language of the bills.
 
 Figure out how to use the LegiScan API to pull down bill progress, without having to re-download the zip files.
